@@ -1,0 +1,2 @@
+### Get wallet for seeded user (alice)
+GET http://localhost:8080/wallets/00000000-0000-0000-0000-000000000001

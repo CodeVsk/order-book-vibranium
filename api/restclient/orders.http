@@ -1,0 +1,35 @@
+@order_id = 123
+
+### Place LIMIT order (BUY)
+POST http://localhost:8080/orders
+Content-Type: application/json
+
+{
+  "user_id": "00000000-0000-0000-0000-000000000001",
+  "side": "BUY",
+  "type": "LIMIT",
+  "price_cents": 100000,
+  "quantity": 100
+}
+
+### Place MARKET order (SELL)
+POST http://localhost:8080/orders
+Content-Type: application/json
+
+{
+  "user_id": "00000000-0000-0000-0000-000000000002",
+  "side": "SELL",
+  "type": "MARKET",
+  "quantity": 50
+}
+
+### Get order by id
+GET http://localhost:8080/orders/{{order_id}}
+
+### Cancel order
+DELETE http://localhost:8080/orders/{{order_id}}
+Content-Type: application/json
+
+{
+  "user_id": "00000000-0000-0000-0000-000000000001"
+}

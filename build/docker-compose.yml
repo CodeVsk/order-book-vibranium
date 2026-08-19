@@ -1,0 +1,140 @@
+# build/docker-compose.yml
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: orderbook
+      POSTGRES_PASSWORD: orderbook
+      POSTGRES_DB: orderbook
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orderbook"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # Local-dev-only distributed tracing backend. Reachable at http://localhost:16686.
+  # Exposed the same way postgres/redis already are in this file — not a
+  # production deployment artifact; a real deployment needs TLS/auth in
+  # front of the collector.
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "4318:4318"   # OTLP HTTP receiver
+
+  migrate:
+    image: migrate/migrate:v4.17.1
+    volumes:
+      - ../migrations:/migrations
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      [
+        "-path", "/migrations",
+        "-database", "postgres://orderbook:orderbook@postgres:5432/orderbook?sslmode=disable",
+        "up",
+      ]
+
+  api:
+    build:
+      context: ..
+      dockerfile: build/Dockerfile.api
+    environment:
+      DATABASE_URL: postgres://orderbook:orderbook@postgres:5432/orderbook?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      APP_PORT: "8080"
+      LOG_LEVEL: info
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    expose:
+      - "8080"
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+  outbox-publisher:
+    build:
+      context: ..
+      dockerfile: build/Dockerfile.outbox-publisher
+    environment:
+      DATABASE_URL: postgres://orderbook:orderbook@postgres:5432/orderbook?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: info
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+
+  matcher:
+    build:
+      context: ..
+      dockerfile: build/Dockerfile.matcher
+    environment:
+      DATABASE_URL: postgres://orderbook:orderbook@postgres:5432/orderbook?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: info
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+
+volumes:
+  pgdata:

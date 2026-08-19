@@ -1,0 +1,10 @@
+@order_id = 123
+
+### List trades (recent)
+GET http://localhost:8080/trades
+
+### List trades for a user
+GET http://localhost:8080/trades?user_id=00000000-0000-0000-0000-000000000001&limit=50
+
+### List trades for an order
+GET http://localhost:8080/trades?order_id={{order_id}}
